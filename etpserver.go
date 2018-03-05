@@ -125,22 +125,16 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		// fmt.Printf("%s\n", b)
 
 		if header.Protocol == 0 {
-
 			if header.MessageType == 1 {
-				// Create a new TestRecord to decode data into
+				// Create a new RequestSession to decode data into
 				body := package1.NewRequestSession()
 
 				bodySchema := SchemaCache["Energistics.Protocol.Core.RequestSession"]
 
-				// fmt.Println(bodySchema)
-
 				reader.SetSchema(bodySchema)
 
-				fmt.Println("read bytes")
 				// Read data into a given record with a given Decoder.
 				err = reader.Read(body, decoder)
-
-				fmt.Println("=>", body.ApplicationName)
 
 				writer := avro.NewSpecificDatumWriter()
 				// SetSchema must be called before calling Write
@@ -151,12 +145,17 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				encoder := avro.NewBinaryEncoder(buffer)
 
 				header.MessageType = 2
-				// Write the record
+				// Write the header
 				writer.Write(header, encoder)
 
 				writer.SetSchema(SchemaCache["Energistics.Protocol.Core.OpenSession"])
 
 				openSession := package1.NewOpenSession()
+
+				openSession.ApplicationName = "Go-ETP"
+				openSession.ApplicationVersion = "1.0.0.1"
+				openSession.SupportedProtocols = body.RequestedProtocols
+				openSession.SupportedObjects = body.SupportedObjects
 
 				writer.Write(openSession, encoder)
 
@@ -168,17 +167,27 @@ func echo(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		} else if header.Protocol == 1 {
+			if header.MessageType == 0 {
+				// Create a new RequestSession to decode data into
+				body := package1.NewStart()
+
+				bodySchema := SchemaCache["Energistics.Protocol.ChannelStreaming.Start"]
+
+				reader.SetSchema(bodySchema)
+
+				// Read data into a given record with a given Decoder.
+				err = reader.Read(body, decoder)
+
+				fmt.Println(body.MaxMessageRate)
+				fmt.Println(body.MaxDataItems)
+			}
 		}
 
 	}
 }
 
 func main() {
-
-	// some := package1.NewOpenSession()
-
-	// println(some.Schema())
-
 	parseAllSchemas()
 
 	// fmt.Println(SchemaCache)
