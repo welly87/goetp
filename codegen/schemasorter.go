@@ -1,4 +1,4 @@
-package main
+package codegen
 
 import (
 	"encoding/json"
@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/buger/jsonparser"
 	"github.com/stevenle/topsort"
 )
 
@@ -22,8 +22,8 @@ type Field struct {
 	Type interface{}
 }
 
-func run() ([]string, error) {
-	searchDir := "Energistics"
+func run(searchDir string) ([]string, error) {
+	// searchDir := "Energistics"
 
 	fileList := make([]string, 0)
 	e := filepath.Walk(searchDir, func(path string, f os.FileInfo, err error) error {
@@ -39,19 +39,6 @@ func run() ([]string, error) {
 	}
 
 	return fileList, nil
-}
-
-func recurse(json string) {
-	jsonparser.ArrayEach([]byte(json), func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		tp, _ := jsonparser.GetUnsafeString(value, "type")
-
-		fmt.Print(dataType.String() + " ")
-
-		fmt.Println(tp)
-
-		recurse(tp)
-
-	}, "fields")
 }
 
 func recurseField(field interface{}) {
@@ -130,17 +117,38 @@ func createDependencies(filePath string) {
 
 var graph = topsort.NewGraph()
 
-func main() {
+func contains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
+}
 
-	fileList, _ := run()
+var etpsortedschemas = make([]string, 0)
+
+func EtpSortedSchemaList() []string {
+
+	fileList, _ := run("Energistics")
 
 	for _, path := range fileList {
 		createDependencies(path)
 	}
 
-	result, _ := graph.TopSort("Energistics.Protocol.Core.OpenSession")
+	fileList, _ = run("Energistics/Protocol")
 
-	for _, value := range result {
-		fmt.Println(value)
+	for _, path := range fileList {
+
+		typeName := strings.Replace(filepath.Dir(path), "\\", ".", -1) + "." + strings.Replace(filepath.Base(path), ".avsc", "", -1)
+		result, _ := graph.TopSort(typeName)
+
+		for _, value := range result {
+			if !contains(etpsortedschemas, value) {
+				etpsortedschemas = append(etpsortedschemas, value)
+			}
+		}
 	}
+
+	return etpsortedschemas
 }

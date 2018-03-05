@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"./codegen"
 	"./package1"
 	"github.com/gorilla/websocket"
 	"gopkg.in/avro.v0"
@@ -58,19 +59,17 @@ func parseSchema(filePath string) avro.Schema {
 var SchemaCache = make(map[string]avro.Schema)
 
 func parseAllSchemas() {
-	schemas := []string{
-		"Energistics.Datatypes.Version",
-		"Energistics.Datatypes.ArrayOfDouble",
-		"Energistics.Datatypes.DataValue",
-		"Energistics.Datatypes.SupportedProtocol",
-		"Energistics.Protocol.Core.RequestSession",
-		"Energistics.Protocol.Core.OpenSession"}
+	schemas := codegen.EtpSortedSchemaList()
 
-	for i, val := range schemas {
+	for _, val := range schemas {
+		// schemas[i] = strings.Replace(val, ".", "/", -1) + ".avsc"
+
 		filePath := strings.Replace(val, ".", "/", -1) + ".avsc"
 
-		SchemaCache[schemas[i]] = parseSchema(filePath)
+		SchemaCache[val] = parseSchema(filePath)
 	}
+
+	fmt.Println(SchemaCache["Energistics.Protocol.Core.RequestSession"].Prop("messageType"))
 
 }
 
@@ -106,7 +105,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		// SetSchema must be called before calling Read
 		reader.SetSchema(schema)
 
-		// Create a new TestRecord to decode data into
+		// Create a new MessageHeader to decode data into
 		header := new(MessageHeader)
 
 		// Read data into a given record with a given Decoder.
@@ -129,7 +128,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 			if header.MessageType == 1 {
 				// Create a new TestRecord to decode data into
-				body := new(package1.RequestSession)
+				body := package1.NewRequestSession()
 
 				bodySchema := SchemaCache["Energistics.Protocol.Core.RequestSession"]
 
@@ -157,7 +156,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 				writer.SetSchema(SchemaCache["Energistics.Protocol.Core.OpenSession"])
 
-				openSession := new(package1.OpenSession)
+				openSession := package1.NewOpenSession()
 
 				writer.Write(openSession, encoder)
 

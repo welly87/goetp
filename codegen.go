@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 
+	"./codegen"
 	"gopkg.in/avro.v0"
 )
 
@@ -33,21 +34,15 @@ var output = flag.String("out", "", "Output file name.")
 func main() {
 	parseAndValidateArgs()
 
-	schemas := []string{
-		"Energistics.Datatypes.Version",
-		"Energistics.Datatypes.ArrayOfDouble",
-		"Energistics.Datatypes.DataValue",
-		"Energistics.Datatypes.SupportedProtocol",
-		"Energistics.Protocol.Core.RequestSession",
-		"Energistics.Protocol.Core.OpenSession"}
+	schemas := codegen.EtpSortedSchemaList()
 
 	for i, val := range schemas {
 		schemas[i] = strings.Replace(val, ".", "/", -1) + ".avsc"
 	}
 
-	for i, _ := range schemas {
+	for i := range schemas {
 		result, _ := ioutil.ReadFile(schemas[i])
-		fmt.Println(schemas[i])
+
 		schemas[i] = string(result)
 	}
 
