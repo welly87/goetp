@@ -2,17 +2,20 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"./codegen"
 	"./package1"
 	"github.com/gorilla/websocket"
 	"gopkg.in/avro.v0"
+	"runtime"
 )
 
 var addr = flag.String("addr", "localhost:9999", "http service address")
@@ -56,7 +59,9 @@ func parseSchema(filePath string) avro.Schema {
 	return schema
 }
 
-var SchemaCache = make(map[string]avro.Schema)
+var schemaCache = make(map[string]avro.Schema)
+
+var typeRegistry = make(map[string]reflect.Type)
 
 func parseAllSchemas() {
 	schemas := codegen.EtpSortedSchemaList()
@@ -65,12 +70,102 @@ func parseAllSchemas() {
 		// schemas[i] = strings.Replace(val, ".", "/", -1) + ".avsc"
 
 		filePath := strings.Replace(val, ".", "/", -1) + ".avsc"
+		schema := parseSchema(filePath)
+		protocol, ok1 := schema.Prop("protocol")
+		messageType, ok2 := schema.Prop("messageType")
 
-		SchemaCache[val] = parseSchema(filePath)
+		if ok1 && ok2 {
+			schemaCache[protocol.(string)+"-"+messageType.(string)] = schema
+		}
+
 	}
 
-	fmt.Println(SchemaCache["Energistics.Protocol.Core.RequestSession"].Prop("messageType"))
+	typeRegistry[reflect.TypeOf(package1.RequestSession{}).Name()] = reflect.TypeOf(package1.RequestSession{})
+	typeRegistry[reflect.TypeOf(package1.CloseSession{}).Name()] = reflect.TypeOf(package1.CloseSession{})
+	typeRegistry[reflect.TypeOf(package1.Start{}).Name()] = reflect.TypeOf(package1.Start{})
+	//fmt.Println(reflect.TypeOf(package1.RequestSession{}).Name())
+}
 
+func handle(header *MessageHeader, body interface{}, c *websocket.Conn) {
+	switch header.Protocol {
+	case 0:
+		handleCoreProtocol(header, body, c)
+	case 1:
+		handleStreamingProtocol(header, body)
+	}
+}
+
+func handleCoreProtocol(header *MessageHeader, body interface{}, c *websocket.Conn) {
+	fmt.Println("handle core protocol ", reflect.TypeOf(body))
+
+	switch msg := body.(type) {
+	case *package1.RequestSession:
+		handleRequestSession(header, msg, c)
+	}
+}
+
+func handleRequestSession(header *MessageHeader, body *package1.RequestSession, c *websocket.Conn) {
+	fmt.Println(body.ApplicationName)
+	fmt.Println(body.ApplicationVersion)
+
+	openSession := package1.NewOpenSession()
+
+	openSession.ApplicationName = "Go-ETP"
+	openSession.ApplicationVersion = "1.0.0.1"
+	openSession.SupportedProtocols = body.RequestedProtocols
+	openSession.SupportedObjects = body.SupportedObjects
+
+	writeReply(header, openSession, c)
+}
+
+func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
+	schema, err := avro.ParseSchema(messageHeaderSchema)
+	if err != nil {
+		// Should not happen if the schema is valid
+		panic(err)
+	}
+
+	writer := avro.NewSpecificDatumWriter()
+	// SetSchema must be called before calling Write
+	writer.SetSchema(schema)
+
+	// Create a new Buffer and Encoder to write to this Buffer
+	buffer := new(bytes.Buffer)
+	encoder := avro.NewBinaryEncoder(buffer)
+
+	header.MessageType = 2 // should find schema type from registry
+	// Write the header
+	writer.Write(header, encoder)
+
+	//fmt.Println(buffer.Len())
+
+	writer.SetSchema(schemaCache["0-2"])
+
+	//fmt.Println(schemaCache)
+
+	err = writer.Write(body, encoder)
+
+	//fmt.Println(buffer.Len())
+
+	if err != nil {
+		log.Println("write:", err)
+	}
+
+	err = c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+
+	if err != nil {
+		log.Println("write:", err)
+	}
+}
+
+func handleStreamingProtocol(header *MessageHeader, body interface{}) {
+	fmt.Println("handle streaming protocol ", body)
+}
+
+func makeInstance(name string) interface{} {
+	v := reflect.New(typeRegistry[name]).Elem()
+	// Maybe fill in fields here if necessary
+	return v.Interface()
 }
 
 func echo(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +176,10 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	go handleClient(c)
+}
+
+func handleClient(c *websocket.Conn) {
 	// Parse the schema first
 	schema, err := avro.ParseSchema(messageHeaderSchema)
 	if err != nil {
@@ -92,6 +191,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		mt, message, err := c.ReadMessage()
+
+		fmt.Println("message type : ", mt)
 
 		if err != nil {
 			log.Println("read:", err)
@@ -114,76 +215,34 @@ func echo(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 
-		// fmt.Println("Message Header")
+		fmt.Println("Message Header")
 
-		// b, err := json.Marshal(header)
+		b, err := json.Marshal(header)
 
-		// if err != nil {
-		// 	panic(err)
-		// }
-
-		// fmt.Printf("%s\n", b)
-
-		if header.Protocol == 0 {
-			if header.MessageType == 1 {
-				// Create a new RequestSession to decode data into
-				body := package1.NewRequestSession()
-
-				bodySchema := SchemaCache["Energistics.Protocol.Core.RequestSession"]
-
-				reader.SetSchema(bodySchema)
-
-				// Read data into a given record with a given Decoder.
-				err = reader.Read(body, decoder)
-
-				writer := avro.NewSpecificDatumWriter()
-				// SetSchema must be called before calling Write
-				writer.SetSchema(schema)
-
-				// Create a new Buffer and Encoder to write to this Buffer
-				buffer := new(bytes.Buffer)
-				encoder := avro.NewBinaryEncoder(buffer)
-
-				header.MessageType = 2
-				// Write the header
-				writer.Write(header, encoder)
-
-				writer.SetSchema(SchemaCache["Energistics.Protocol.Core.OpenSession"])
-
-				openSession := package1.NewOpenSession()
-
-				openSession.ApplicationName = "Go-ETP"
-				openSession.ApplicationVersion = "1.0.0.1"
-				openSession.SupportedProtocols = body.RequestedProtocols
-				openSession.SupportedObjects = body.SupportedObjects
-
-				writer.Write(openSession, encoder)
-
-				err = c.WriteMessage(mt, buffer.Bytes())
-
-				if err != nil {
-					log.Println("write:", err)
-					break
-				}
-			}
-
-		} else if header.Protocol == 1 {
-			if header.MessageType == 0 {
-				// Create a new RequestSession to decode data into
-				body := package1.NewStart()
-
-				bodySchema := SchemaCache["Energistics.Protocol.ChannelStreaming.Start"]
-
-				reader.SetSchema(bodySchema)
-
-				// Read data into a given record with a given Decoder.
-				err = reader.Read(body, decoder)
-
-				fmt.Println(body.MaxMessageRate)
-				fmt.Println(body.MaxDataItems)
-			}
+		if err != nil {
+			panic(err)
 		}
 
+		fmt.Printf("%s\n", b)
+
+		// Create a new RequestSession to decode data into
+
+		bodySchema := schemaCache[fmt.Sprintf("%v-%v", header.Protocol, header.MessageType)]
+
+		//fmt.Println(bodySchema.GetName())
+
+		body := reflect.New(typeRegistry[bodySchema.GetName()]).Interface()
+
+		// fmt.Println(body)
+
+		reader.SetSchema(bodySchema)
+
+		// Read data into a given record with a given Decoder.
+		err = reader.Read(body, decoder)
+
+		fmt.Println(err)
+
+		handle(header, body, c)
 	}
 }
 
@@ -191,10 +250,10 @@ func main() {
 	parseAllSchemas()
 
 	// fmt.Println(SchemaCache)
-
+	fmt.Println(runtime.GOMAXPROCS(runtime.NumCPU()))
 	flag.Parse()
 	log.SetFlags(0)
-	http.HandleFunc("/echo", echo)
+	http.HandleFunc("/etp", echo)
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
