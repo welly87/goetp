@@ -16,6 +16,8 @@ import (
 	"github.com/gorilla/websocket"
 	"gopkg.in/avro.v0"
 	"runtime"
+	"strconv"
+
 )
 
 var addr = flag.String("addr", "localhost:9999", "http service address")
@@ -59,7 +61,9 @@ func parseSchema(filePath string) avro.Schema {
 	return schema
 }
 
-var schemaCache = make(map[string]avro.Schema)
+var readerSchemaCache = make(map[string]avro.Schema)
+
+var writerSchemaCache = make(map[string]avro.Schema)
 
 var typeRegistry = make(map[string]reflect.Type)
 
@@ -67,19 +71,18 @@ func parseAllSchemas() {
 	schemas := codegen.EtpSortedSchemaList()
 
 	for _, val := range schemas {
-		// schemas[i] = strings.Replace(val, ".", "/", -1) + ".avsc"
-
 		filePath := strings.Replace(val, ".", "/", -1) + ".avsc"
 		schema := parseSchema(filePath)
 		protocol, ok1 := schema.Prop("protocol")
 		messageType, ok2 := schema.Prop("messageType")
 
 		if ok1 && ok2 {
-			schemaCache[protocol.(string)+"-"+messageType.(string)] = schema
+			readerSchemaCache[protocol.(string)+"-"+messageType.(string)] = schema
+			writerSchemaCache[schema.GetName()] = schema
 		}
-
 	}
 
+	// TODO need to list all the possible message
 	typeRegistry[reflect.TypeOf(package1.RequestSession{}).Name()] = reflect.TypeOf(package1.RequestSession{})
 	typeRegistry[reflect.TypeOf(package1.CloseSession{}).Name()] = reflect.TypeOf(package1.CloseSession{})
 	typeRegistry[reflect.TypeOf(package1.Start{}).Name()] = reflect.TypeOf(package1.Start{})
@@ -133,19 +136,22 @@ func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	buffer := new(bytes.Buffer)
 	encoder := avro.NewBinaryEncoder(buffer)
 
-	header.MessageType = 2 // should find schema type from registry
+	writerSchema := writerSchemaCache[reflect.TypeOf(body).Elem().Name()]
+
+	m, _ := writerSchema.Prop("messageType")
+	i64, err := strconv.ParseInt(m.(string), 10, 32)
+	header.MessageType = int32(i64)
+
+	p, _ := writerSchema.Prop("protocol")
+	i64, err = strconv.ParseInt(p.(string), 10, 32)
+	header.Protocol = int32(i64)
+
 	// Write the header
 	writer.Write(header, encoder)
 
-	//fmt.Println(buffer.Len())
-
-	writer.SetSchema(schemaCache["0-2"])
-
-	//fmt.Println(schemaCache)
+	writer.SetSchema(writerSchema)
 
 	err = writer.Write(body, encoder)
-
-	//fmt.Println(buffer.Len())
 
 	if err != nil {
 		log.Println("write:", err)
@@ -227,20 +233,16 @@ func handleClient(c *websocket.Conn) {
 
 		// Create a new RequestSession to decode data into
 
-		bodySchema := schemaCache[fmt.Sprintf("%v-%v", header.Protocol, header.MessageType)]
-
-		//fmt.Println(bodySchema.GetName())
+		bodySchema := readerSchemaCache[fmt.Sprintf("%v-%v", header.Protocol, header.MessageType)]
 
 		body := reflect.New(typeRegistry[bodySchema.GetName()]).Interface()
-
-		// fmt.Println(body)
 
 		reader.SetSchema(bodySchema)
 
 		// Read data into a given record with a given Decoder.
 		err = reader.Read(body, decoder)
 
-		fmt.Println(err)
+		//fmt.Println(err)
 
 		handle(header, body, c)
 	}
