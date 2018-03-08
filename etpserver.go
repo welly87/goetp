@@ -15,7 +15,6 @@ import (
 	"./package1"
 	"github.com/gorilla/websocket"
 	"gopkg.in/avro.v0"
-	"runtime"
 	"strconv"
 
 )
@@ -94,7 +93,7 @@ func handle(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	case 0:
 		handleCoreProtocol(header, body, c)
 	case 1:
-		handleStreamingProtocol(header, body)
+		handleStreamingProtocol(header, body, c)
 	}
 }
 
@@ -106,6 +105,35 @@ func handleCoreProtocol(header *MessageHeader, body interface{}, c *websocket.Co
 		handleRequestSession(header, msg, c)
 	}
 }
+
+func handleStreamingProtocol(header *MessageHeader, body interface{}, c *websocket.Conn) {
+	fmt.Println("handle streaming protocol ", reflect.TypeOf(body))
+
+	switch msg := body.(type) {
+	case *package1.Start:
+		fmt.Println(msg.MaxMessageRate, msg.MaxDataItems)
+		go func() {
+			for  {
+				channelData :=  package1.NewChannelData()
+
+				dataItem := package1.NewDataItem()
+
+				dataItem.ChannelId = 1
+				dataItem.Value = package1.NewDataValue()
+				dataItem.Value.Item = 1
+
+				channelData.Data = append(channelData.Data, dataItem)
+
+				fmt.Println("send channel data")
+
+				writeReply(header, channelData, c)
+			}
+		}()
+
+	}
+}
+
+
 
 func handleRequestSession(header *MessageHeader, body *package1.RequestSession, c *websocket.Conn) {
 	fmt.Println(body.ApplicationName)
@@ -120,6 +148,8 @@ func handleRequestSession(header *MessageHeader, body *package1.RequestSession, 
 
 	writeReply(header, openSession, c)
 }
+
+
 
 func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	schema, err := avro.ParseSchema(messageHeaderSchema)
@@ -149,9 +179,15 @@ func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	// Write the header
 	writer.Write(header, encoder)
 
+	//fmt.Println(buffer.Len())
+
 	writer.SetSchema(writerSchema)
 
+	fmt.Println("writer schema", writerSchema)
+
 	err = writer.Write(body, encoder)
+
+	//fmt.Println(buffer.Len())
 
 	if err != nil {
 		log.Println("write:", err)
@@ -164,9 +200,7 @@ func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	}
 }
 
-func handleStreamingProtocol(header *MessageHeader, body interface{}) {
-	fmt.Println("handle streaming protocol ", body)
-}
+
 
 func makeInstance(name string) interface{} {
 	v := reflect.New(typeRegistry[name]).Elem()
@@ -252,7 +286,7 @@ func main() {
 	parseAllSchemas()
 
 	// fmt.Println(SchemaCache)
-	fmt.Println(runtime.GOMAXPROCS(runtime.NumCPU()))
+	//fmt.Println(runtime.GOMAXPROCS(runtime.NumCPU()))
 	flag.Parse()
 	log.SetFlags(0)
 	http.HandleFunc("/etp", echo)
