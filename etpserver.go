@@ -62,11 +62,11 @@ func parseSchema(filePath string) avro.Schema {
 
 var readerSchemaCache = make(map[string]avro.Schema)
 
-var writerSchemaCache = make(map[string]avro.Schema)
+var WriterSchemaCache = make(map[string]avro.Schema)
 
 var typeRegistry = make(map[string]reflect.Type)
 
-func parseAllSchemas() {
+func ParseAllSchemas() {
 	schemas := codegen.EtpSortedSchemaList()
 
 	for _, val := range schemas {
@@ -77,7 +77,7 @@ func parseAllSchemas() {
 
 		if ok1 && ok2 {
 			readerSchemaCache[protocol.(string)+"-"+messageType.(string)] = schema
-			writerSchemaCache[schema.GetName()] = schema
+			WriterSchemaCache[schema.GetName()] = schema
 		}
 	}
 
@@ -114,26 +114,58 @@ func handleStreamingProtocol(header *MessageHeader, body interface{}, c *websock
 		fmt.Println(msg.MaxMessageRate, msg.MaxDataItems)
 		go func() {
 			for  {
-				channelData :=  package1.NewChannelData()
-
-				dataItem := package1.NewDataItem()
-
-				dataItem.ChannelId = 1
-				dataItem.Value = package1.NewDataValue()
-				dataItem.Value.Item = 1
-
-				channelData.Data = append(channelData.Data, dataItem)
-
-				fmt.Println("send channel data")
-
-				writeReply(header, channelData, c)
+				sendChannelData(header, c)
 			}
 		}()
 
 	}
 }
+func sendChannelData(header *MessageHeader, c *websocket.Conn) {
 
+	schema, err := avro.ParseSchema(messageHeaderSchema)
+	if err != nil {
+		// Should not happen if the schema is valid
+		panic(err)
+	}
 
+	writer := avro.NewSpecificDatumWriter()
+	// SetSchema must be called before calling Write
+	writer.SetSchema(schema)
+
+	// Create a new Buffer and Encoder to write to this Buffer
+	buffer := new(bytes.Buffer)
+	encoder := avro.NewBinaryEncoder(buffer)
+
+	header.Protocol = 1
+	header.MessageType = 3
+
+	writer.Write(header, encoder)
+
+	// write channel data
+
+	encoder.WriteArrayStart(1)
+
+	encoder.WriteArrayStart(1)
+	encoder.WriteLong(1) // write index
+	encoder.WriteArrayNext(0)
+
+	encoder.WriteLong(1) // write channel id
+
+	encoder.WriteLong(1)
+	encoder.WriteDouble(1.5) // write channel value
+
+	encoder.WriteArrayStart(0)
+	//encoder.WriteLong(1) // write value attribute
+	encoder.WriteArrayNext(0)
+
+	encoder.WriteArrayNext(0)
+
+	err = c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+
+	if err != nil {
+		log.Println("write:", err)
+	}
+}
 
 func handleRequestSession(header *MessageHeader, body *package1.RequestSession, c *websocket.Conn) {
 	fmt.Println(body.ApplicationName)
@@ -148,8 +180,6 @@ func handleRequestSession(header *MessageHeader, body *package1.RequestSession, 
 
 	writeReply(header, openSession, c)
 }
-
-
 
 func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	schema, err := avro.ParseSchema(messageHeaderSchema)
@@ -166,7 +196,7 @@ func writeReply(header *MessageHeader, body interface{}, c *websocket.Conn) {
 	buffer := new(bytes.Buffer)
 	encoder := avro.NewBinaryEncoder(buffer)
 
-	writerSchema := writerSchemaCache[reflect.TypeOf(body).Elem().Name()]
+	writerSchema := WriterSchemaCache[reflect.TypeOf(body).Elem().Name()]
 
 	m, _ := writerSchema.Prop("messageType")
 	i64, err := strconv.ParseInt(m.(string), 10, 32)
@@ -282,8 +312,60 @@ func handleClient(c *websocket.Conn) {
 	}
 }
 
+
+func test() {
+	ParseAllSchemas()
+	writerSchema := WriterSchemaCache["ChannelData"]
+
+	writer := avro.NewSpecificDatumWriter()
+	writer.SetSchema(writerSchema)
+	buffer := new(bytes.Buffer)
+	encoder := avro.NewBinaryEncoder(buffer)
+
+	fmt.Println(buffer.Len())
+
+	channelData :=  package1.NewChannelData()
+
+	dataItem := package1.NewDataItem()
+
+	dataItem.ChannelId = 1
+	dataItem.Value = package1.NewDataValue()
+	dataItem.Value.Item = 1
+
+	channelData.Data = append(channelData.Data, dataItem)
+
+	encoder.WriteArrayStart(1)
+
+	encoder.WriteArrayStart(1)
+	encoder.WriteLong(1) // write index
+	encoder.WriteArrayNext(0)
+
+	encoder.WriteLong(1) // write channel id
+
+	encoder.WriteLong(1)
+	encoder.WriteDouble(1.5)
+
+	encoder.WriteArrayStart(0)
+	//encoder.WriteLong(1) // write index
+	encoder.WriteArrayNext(0)
+
+	encoder.WriteArrayNext(0)
+
+	fmt.Println(buffer.Len())
+
+	//if err != nil {
+	//	log.Println("write:", err)
+	//}
+
+
+}
+
 func main() {
-	parseAllSchemas()
+
+	//test()
+
+
+	ParseAllSchemas()
 
 	// fmt.Println(SchemaCache)
 	//fmt.Println(runtime.GOMAXPROCS(runtime.NumCPU()))
