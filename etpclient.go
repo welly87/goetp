@@ -21,7 +21,8 @@ func basicAuth(username, password string) string {
 
 func main() {
 	//wss://witsmlstudio.pds.software/staging/api/etp
-	u := url.URL{Scheme: "wss", Host: "witsmlstudio.pds.software", Path: "/staging/api/etp"}
+	//u := url.URL{Scheme: "wss", Host: "witsmlstudio.pds.software", Path: "/staging/api/etp"}
+	u := url.URL{Scheme: "ws", Host: "localhost:9999", Path: "/etp"}
 	log.Printf("connecting to %s", u.String())
 
 	var dialer = websocket.DefaultDialer
@@ -91,7 +92,7 @@ func main() {
 
 				// discoverObject(c)
 
-				describeWell(c)
+				// describeWell(c)
 			case 1:
 				handleChannelStreaming(header, buffer, c)
 				//handleChannelStart(header, buffer)
@@ -154,7 +155,7 @@ func sendChannelData(c*websocket.Conn) {
 
 	header.Protocol = 1
 
-	header.MessageType = 2
+	header.MessageType = 3
 
 	header.Serialize(buffer)
 
@@ -171,6 +172,9 @@ func sendChannelMetadata(c *websocket.Conn) {
 	channelMetadata := energistics.NewChannelMetadata()
 
 	channelMetadataRecord := energistics.NewChannelMetadataRecord()
+
+	channelMetadataRecord.ChannelId = 1
+	channelMetadataRecord.ChannelUri = "eml://channel(IOT)"
 
 	channelMetadata.Channels = append(channelMetadata.Channels, channelMetadataRecord)
 

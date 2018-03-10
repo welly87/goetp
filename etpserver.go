@@ -58,23 +58,51 @@ func handleClient(c *websocket.Conn) {
 
 		switch header.Protocol {
 		case 0:
-			handleCoreProtocol(header, buffer)
-		}
+			handleCoreProtocol(header, buffer, c)
+		case 1:
+			handleConsumerChannelStreaming(header, buffer, c)
 
+		}
+	}
+}
+func handleConsumerChannelStreaming(header *energistics.MessageHeader, buffer *bytes.Buffer, conn *websocket.Conn) {
+	switch header.MessageType {
+	case 3:
+		channelData, _ := energistics.DeserializeChannelData(buffer)
+		fmt.Println(channelData.Data)
 	}
 }
 
-func handleCoreProtocol(header *energistics.MessageHeader, buffer *bytes.Buffer) {
+func handleCoreProtocol(header *energistics.MessageHeader, buffer *bytes.Buffer, c *websocket.Conn) {
 	switch header.MessageType {
 	case 1:
 		body, _ := energistics.DeserializeRequestSession(buffer)
 
 		handleRequestSession(header, body)
 
+		sendStart(c)
+
 	case 2:
 
 
 	}
+}
+func sendStart(c *websocket.Conn) {
+	buffer := new(bytes.Buffer)
+
+	header := energistics.NewMessageHeader()
+
+	header.Protocol = 1
+
+	header.MessageType = 0
+
+	header.Serialize(buffer)
+
+	start := energistics.NewStart()
+
+	start.Serialize(buffer)
+
+	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 }
 func handleRequestSession(header *energistics.MessageHeader, requestSession *energistics.RequestSession) {
 	b, err := json.Marshal(requestSession)
@@ -82,6 +110,7 @@ func handleRequestSession(header *energistics.MessageHeader, requestSession *ene
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Printf("%s\n", b)
 
 }
