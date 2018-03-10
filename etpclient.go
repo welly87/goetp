@@ -9,7 +9,6 @@ import (
 	"./etpsrc"
 	"bytes"
 
-	//"gopkg.in/avro.v0"
 	"encoding/json"
 	"fmt"
 )
@@ -40,13 +39,21 @@ func main() {
 	header := energistics.NewMessageHeader()
 
 	header.Protocol = 0
+
 	header.MessageType = 1
 
 	header.Serialize(buffer)
 
-	requestSession := energistics.NewRequestSession()
+	body := energistics.NewRequestSession()
 
-	requestSession.Serialize(buffer)
+
+	supportedProtocol := energistics.NewSupportedProtocol()
+	supportedProtocol.Role = "store"
+	supportedProtocol.Protocol = 3
+
+	body.RequestedProtocols = append(body.RequestedProtocols, supportedProtocol)
+
+	body.Serialize(buffer)
 
 	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 
@@ -64,19 +71,60 @@ func main() {
 			switch header.Protocol {
 			case 0:
 				handleCoreClientProtocol(header, buffer)
-			}
 
-			if err != nil {
-				log.Println("read:", err)
-				return
-			}
+				discoverObject(c)
+			case 3:
+				handleResourceObject(header, buffer)
+				// streamChannelData(c)
+			default:
+				if err != nil {
+					log.Println("read:", err)
+					return
+				}
 
-			log.Printf("recv: %s", message)
+				log.Printf("recv: %s", message)
+			}
 		}
 	}()
 
 	<-quit
 }
+func handleResourceObject(header *energistics.MessageHeader, buffer *bytes.Buffer) {
+	resources, _ := energistics.DeserializeGetResourcesResponse(buffer)
+	b, err := json.Marshal(resources)
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("%s\n", b)
+}
+
+func discoverObject(c *websocket.Conn) {
+
+	buffer := new(bytes.Buffer)
+
+	header := energistics.NewMessageHeader()
+
+	header.Protocol = 3
+
+	header.MessageType = 1
+
+	header.Serialize(buffer)
+
+	body := energistics.NewGetResources()
+
+	body.Uri = "eml://witsml20" // "/'
+
+	body.Serialize(buffer)
+
+	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+}
+
+func streamChannelData(conn *websocket.Conn) {
+
+}
+
 func handleCoreClientProtocol(header *energistics.MessageHeader, buffer *bytes.Buffer) {
 	openSession, _ := energistics.DeserializeOpenSession(buffer)
 	b, err := json.Marshal(openSession)
@@ -86,4 +134,5 @@ func handleCoreClientProtocol(header *energistics.MessageHeader, buffer *bytes.B
 	}
 
 	fmt.Printf("%s\n", b)
+
 }
