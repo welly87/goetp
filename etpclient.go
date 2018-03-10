@@ -122,12 +122,12 @@ func handleChannelStreaming(header *energistics.MessageHeader, buffer *bytes.Buf
 		fmt.Println("MaxDataItems => ", body.MaxDataItems)
 
 		go simpleStreamer(c)
-	case 5:
-		stop, _ := energistics.DeserializeChannelStreamingStop(buffer)
-		fmt.Println(stop.Channels)
 	case 1:
 		describe, _ := energistics.DeserializeChannelDescribe(buffer)
 		fmt.Println(describe.Uris)
+	case 5:
+		stop, _ := energistics.DeserializeChannelStreamingStop(buffer)
+		fmt.Println(stop.Channels)
 	case 1000:
 		exception, _ := energistics.DeserializeProtocolException(buffer)
 		fmt.Println("error", exception.ErrorMessage)
@@ -161,6 +161,20 @@ func sendChannelData(c*websocket.Conn) {
 
 	channelData := energistics.NewChannelData()
 
+	dataItem := energistics.NewDataItem()
+
+	dataItem.ChannelId = 1
+
+	dataItem.Indexes = []int64 {1}
+
+	dataItem.Value = energistics.NewDataValue()
+
+	dataItem.Value.Item.Double = 1.0
+
+	dataItem.Value.Item.UnionType = energistics.UnionNullDoubleFloatIntLongStringArrayOfDoubleBoolBytesTypeEnumDouble
+
+	channelData.Data = append(channelData.Data, dataItem)
+
 	channelData.Serialize(buffer)
 
 	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
@@ -172,9 +186,16 @@ func sendChannelMetadata(c *websocket.Conn) {
 	channelMetadata := energistics.NewChannelMetadata()
 
 	channelMetadataRecord := energistics.NewChannelMetadataRecord()
+	indexMetadata := energistics.NewIndexMetadataRecord()
+
+	indexMetadata.Uri.String = ""
+	//indexMetadata.
+
+	channelMetadataRecord.Indexes = append(channelMetadataRecord.Indexes, indexMetadata)
+
 
 	channelMetadataRecord.ChannelId = 1
-	channelMetadataRecord.ChannelUri = "eml://channel(IOT)"
+	channelMetadataRecord.ChannelUri = "eml://witsml20/Channel(fbfb17f7-3e58-4e38-91e6-f8fdf7f0613d)"
 
 	channelMetadata.Channels = append(channelMetadata.Channels, channelMetadataRecord)
 

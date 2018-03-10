@@ -69,7 +69,7 @@ func handleConsumerChannelStreaming(header *energistics.MessageHeader, buffer *b
 	switch header.MessageType {
 	case 3:
 		channelData, _ := energistics.DeserializeChannelData(buffer)
-		fmt.Println(channelData.Data)
+		fmt.Println(channelData.Data[0].Value.Item.Double)
 	}
 }
 
