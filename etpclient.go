@@ -54,7 +54,8 @@ func main() {
 	body.RequestedProtocols = append(body.RequestedProtocols, supportedProtocol)
 
 	supportedProtocol = energistics.NewSupportedProtocol()
-	supportedProtocol.Role = "producer"
+	//supportedProtocol.Role = "producer"
+	supportedProtocol.Role = "consumer"
 	supportedProtocol.Protocol = 1
 
 	body.RequestedProtocols = append(body.RequestedProtocols, supportedProtocol)
@@ -67,7 +68,7 @@ func main() {
 	var quit = make(chan struct{})
 
 	go func() {
-		//defer close(done)
+
 		for {
 			_, message, err := c.ReadMessage()
 
@@ -75,14 +76,14 @@ func main() {
 
 			header, _ = energistics.DeserializeMessageHeader(buffer)
 
-			b, err := json.Marshal(body)
+
+			b, err := json.Marshal(header)
 
 			if err != nil {
 				panic(err)
 			}
 
 			fmt.Printf("%s\n", b)
-
 
 			switch header.Protocol {
 			case 0:
@@ -92,7 +93,8 @@ func main() {
 
 				describeWell(c)
 			case 1:
-				handleChannelStreaming(header, buffer)
+				handleChannelStreaming(header, buffer, c)
+				//handleChannelStart(header, buffer)
 			case 3:
 				handleResourceObject(header, buffer)
 				// streamChannelData(c)
@@ -109,12 +111,82 @@ func main() {
 
 	<-quit
 }
-func handleChannelStreaming(header *energistics.MessageHeader, buffer *bytes.Buffer) {
-	body, _ := energistics.DeserializeChannelMetadata(buffer)
 
-	for _, channel := range body.Channels {
-		fmt.Println(channel.ChannelUri)
+func handleChannelStreaming(header *energistics.MessageHeader, buffer *bytes.Buffer, c *websocket.Conn ) {
+	switch header.MessageType {
+	case 0:
+		body, _ := energistics.DeserializeStart(buffer)
+
+		fmt.Println("MaxMessageRate => ", body.MaxMessageRate)
+		fmt.Println("MaxDataItems => ", body.MaxDataItems)
+
+		go simpleStreamer(c)
+	case 5:
+		stop, _ := energistics.DeserializeChannelStreamingStop(buffer)
+		fmt.Println(stop.Channels)
+	case 1:
+		describe, _ := energistics.DeserializeChannelDescribe(buffer)
+		fmt.Println(describe.Uris)
+	case 1000:
+		exception, _ := energistics.DeserializeProtocolException(buffer)
+		fmt.Println("error", exception.ErrorMessage)
+
+	default:
+		fmt.Println("messageType : ", header.MessageType)
 	}
+	//body, _ := energistics.DeserializeChannelMetadata(buffer)
+	//
+	//for _, channel := range body.Channels {
+	//	fmt.Println(channel.ChannelUri)
+	//}
+}
+func simpleStreamer(c *websocket.Conn) {
+	sendChannelMetadata(c)
+
+	for {
+		sendChannelData(c)
+	}
+}
+func sendChannelData(c*websocket.Conn) {
+	buffer := new(bytes.Buffer)
+
+	header := energistics.NewMessageHeader()
+
+	header.Protocol = 1
+
+	header.MessageType = 2
+
+	header.Serialize(buffer)
+
+	channelData := energistics.NewChannelData()
+
+	channelData.Serialize(buffer)
+
+	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+}
+
+func sendChannelMetadata(c *websocket.Conn) {
+	fmt.Println("simple streamer send channel metadata")
+
+	channelMetadata := energistics.NewChannelMetadata()
+
+	channelMetadataRecord := energistics.NewChannelMetadataRecord()
+
+	channelMetadata.Channels = append(channelMetadata.Channels, channelMetadataRecord)
+
+	buffer := new(bytes.Buffer)
+
+	header := energistics.NewMessageHeader()
+
+	header.Protocol = 1
+
+	header.MessageType = 2
+
+	header.Serialize(buffer)
+
+	channelMetadata.Serialize(buffer)
+
+	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 }
 
 func describeWell(c *websocket.Conn) {
