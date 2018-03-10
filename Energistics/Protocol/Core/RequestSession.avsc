@@ -10,13 +10,7 @@
 	[
 		{ "name": "applicationName", "type": "string" },
 		{ "name": "applicationVersion", "type": "string" },
-		{ 
-		"name": "requestedProtocols", 
-		"type": { "type": "array", "items": "Energistics.Datatypes.SupportedProtocol" } 
-	},
-		{ 
-		"name": "supportedObjects", 
-		"type": { "type": "array", "items": "string" } 
-	}
+		{ "name": "requestedProtocols",  "type": { "type": "array", "items": "Energistics.Datatypes.SupportedProtocol" } },
+		{ "name": "supportedObjects", "type": { "type": "array", "items": "string" } }
 	]
 }

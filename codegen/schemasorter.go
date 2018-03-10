@@ -152,3 +152,7 @@ func EtpSortedSchemaList() []string {
 
 	return etpsortedschemas
 }
+
+func main() {
+
+}
