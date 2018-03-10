@@ -8,6 +8,10 @@ import (
 	"net/http"
 	"./etpsrc"
 	"bytes"
+
+	//"gopkg.in/avro.v0"
+	"encoding/json"
+	"fmt"
 )
 
 func basicAuth(username, password string) string {
@@ -46,17 +50,40 @@ func main() {
 
 	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
 
+	var quit = make(chan struct{})
+
 	go func() {
 		//defer close(done)
 		for {
 			_, message, err := c.ReadMessage()
+
+			buffer = bytes.NewBuffer(message)
+
+			header, _ = energistics.DeserializeMessageHeader(buffer)
+
+			switch header.Protocol {
+			case 0:
+				handleCoreClientProtocol(header, buffer)
+			}
+
 			if err != nil {
 				log.Println("read:", err)
 				return
 			}
+
 			log.Printf("recv: %s", message)
 		}
 	}()
 
+	<-quit
+}
+func handleCoreClientProtocol(header *energistics.MessageHeader, buffer *bytes.Buffer) {
+	openSession, _ := energistics.DeserializeOpenSession(buffer)
+	b, err := json.Marshal(openSession)
 
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("%s\n", b)
 }
