@@ -53,6 +53,13 @@ func main() {
 
 	body.RequestedProtocols = append(body.RequestedProtocols, supportedProtocol)
 
+	supportedProtocol = energistics.NewSupportedProtocol()
+	supportedProtocol.Role = "producer"
+	supportedProtocol.Protocol = 1
+
+	body.RequestedProtocols = append(body.RequestedProtocols, supportedProtocol)
+
+
 	body.Serialize(buffer)
 
 	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
@@ -68,11 +75,24 @@ func main() {
 
 			header, _ = energistics.DeserializeMessageHeader(buffer)
 
+			b, err := json.Marshal(body)
+
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Printf("%s\n", b)
+
+
 			switch header.Protocol {
 			case 0:
 				handleCoreClientProtocol(header, buffer)
 
-				discoverObject(c)
+				// discoverObject(c)
+
+				describeWell(c)
+			case 1:
+				handleChannelStreaming(header, buffer)
 			case 3:
 				handleResourceObject(header, buffer)
 				// streamChannelData(c)
@@ -89,6 +109,34 @@ func main() {
 
 	<-quit
 }
+func handleChannelStreaming(header *energistics.MessageHeader, buffer *bytes.Buffer) {
+	body, _ := energistics.DeserializeChannelMetadata(buffer)
+
+	for _, channel := range body.Channels {
+		fmt.Println(channel.ChannelUri)
+	}
+}
+
+func describeWell(c *websocket.Conn) {
+	buffer := new(bytes.Buffer)
+
+	header := energistics.NewMessageHeader()
+
+	header.Protocol = 1
+
+	header.MessageType = 1
+
+	header.Serialize(buffer)
+
+	body := energistics.NewChannelDescribe()
+
+	body.Uris = append(body.Uris, "eml://witsml20")
+
+	body.Serialize(buffer)
+
+	c.WriteMessage(websocket.BinaryMessage, buffer.Bytes())
+}
+
 func handleResourceObject(header *energistics.MessageHeader, buffer *bytes.Buffer) {
 	resources, _ := energistics.DeserializeGetResourcesResponse(buffer)
 	b, err := json.Marshal(resources)
